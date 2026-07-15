@@ -1,0 +1,20 @@
+@import "tailwindcss";
+
+:root {
+  --surface-1: #1a1a19;
+  --page-plane: #0d0d0d;
+  --text-primary: #ffffff;
+  --text-secondary: #c3c2b7;
+  --text-muted: #898781;
+  --gridline: #2c2c2a;
+  --border: rgba(255, 255, 255, 0.1);
+  --status-good: #0ca30c;
+  --status-warning: #fab219;
+  --status-critical: #d03b3b;
+  --accent: #3987e5;
+}
+
+body {
+  background-color: var(--page-plane);
+  color: var(--text-primary);
+}

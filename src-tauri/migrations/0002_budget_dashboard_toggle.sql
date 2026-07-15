@@ -1,0 +1,1 @@
+ALTER TABLE budgets ADD COLUMN show_on_dashboard INTEGER NOT NULL DEFAULT 1;
