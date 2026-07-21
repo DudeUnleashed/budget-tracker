@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Account } from "../api";
-import { createAccount, getAccountBalance, setDefaultAccount, updateAccount } from "../api";
+import { createAccount, deleteAccount, getAccountBalance, setDefaultAccount, updateAccount } from "../api";
 import { formatCents } from "../utils";
 
 interface Props {
@@ -19,6 +19,7 @@ export default function AccountsView({ accounts, onAccountCreated, bump }: Props
   const [editName, setEditName] = useState("");
   const [editLedger, setEditLedger] = useState("personal");
   const [editBalance, setEditBalance] = useState("0");
+  const [deleteErrors, setDeleteErrors] = useState<Record<number, string>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -70,6 +71,21 @@ export default function AccountsView({ accounts, onAccountCreated, bump }: Props
   async function handleSetDefault(id: number) {
     await setDefaultAccount(id);
     bump();
+  }
+
+  async function handleDelete(id: number, name: string) {
+    if (!window.confirm(`Delete "${name}"? This can't be undone.`)) return;
+    try {
+      await deleteAccount(id);
+      setDeleteErrors((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+      bump();
+    } catch (err) {
+      setDeleteErrors((prev) => ({ ...prev, [id]: String(err) }));
+    }
   }
 
   const inputStyle = { borderColor: "var(--border)" };
@@ -197,6 +213,13 @@ export default function AccountsView({ accounts, onAccountCreated, bump }: Props
                     >
                       edit
                     </button>
+                    <button
+                      onClick={() => handleDelete(a.id, a.name)}
+                      className="text-xs"
+                      style={{ color: "var(--status-critical)" }}
+                    >
+                      delete
+                    </button>
                   </div>
                 </div>
                 <p className="mt-2 text-2xl font-semibold">
@@ -210,6 +233,11 @@ export default function AccountsView({ accounts, onAccountCreated, bump }: Props
                   >
                     Set as default
                   </button>
+                )}
+                {deleteErrors[a.id] && (
+                  <p className="mt-2 text-xs" style={{ color: "var(--status-critical)" }}>
+                    {deleteErrors[a.id]}
+                  </p>
                 )}
               </>
             )}

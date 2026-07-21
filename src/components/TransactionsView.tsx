@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import type { Account, Tag, Transaction } from "../api";
 import { deleteTransaction, searchTransactions } from "../api";
-import { formatCents } from "../utils";
 import AddEntryForm from "./AddEntryForm";
 import EditTransactionForm from "./EditTransactionForm";
+import LedgerTable from "./LedgerTable";
 
 interface Props {
   accounts: Account[];
@@ -18,8 +18,7 @@ export default function TransactionsView({ accounts, tags, onTagCreated, dataVer
   const [accountFilter, setAccountFilter] = useState<number | "">("");
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [showAddForm, setShowAddForm] = useState(false);
-  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
-  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -31,21 +30,9 @@ export default function TransactionsView({ accounts, tags, onTagCreated, dataVer
     };
   }, [query, accountFilter, dataVersion]);
 
-  const accountName = (id: number) => accounts.find((a) => a.id === id)?.name ?? `#${id}`;
-
-  function toggleExpanded(id: number) {
-    setExpandedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
-  }
-
   async function handleDelete(id: number) {
+    const t = transactions.find((tx) => tx.id === id);
+    if (!window.confirm(`Delete "${t?.description ?? "this transaction"}"? This can't be undone.`)) return;
     await deleteTransaction(id);
     bump();
   }
@@ -94,96 +81,27 @@ export default function TransactionsView({ accounts, tags, onTagCreated, dataVer
         />
       )}
 
-      <div className="flex flex-col gap-2">
-        {transactions.map((t) => {
-          const expanded = expandedIds.has(t.id);
-          return (
-            <div key={t.id} className="rounded-lg border" style={{ borderColor: "var(--border)", backgroundColor: "var(--surface-1)" }}>
-              <button
-                onClick={() => toggleExpanded(t.id)}
-                className="flex w-full flex-wrap items-center gap-3 px-4 py-3 text-left"
-              >
-                <span className="w-4 text-xs" style={{ color: "var(--text-muted)" }}>{expanded ? "▾" : "▸"}</span>
-                <span
-                  className="w-24 shrink-0 text-xs"
-                  style={{ color: "var(--text-secondary)", fontVariantNumeric: "tabular-nums" }}
-                >
-                  {t.date}
-                </span>
-                <span className="flex-1 font-medium">{t.description}</span>
-                <div className="flex flex-wrap gap-1">
-                  {t.tags.map((tag) => (
-                    <span
-                      key={tag.id}
-                      className="rounded-full px-2 py-0.5 text-xs"
-                      style={{ backgroundColor: `${tag.color ?? "#3987e5"}22`, color: "var(--text-secondary)" }}
-                    >
-                      {tag.name}
-                    </span>
-                  ))}
-                </div>
-                <span className="w-32 shrink-0 text-xs" style={{ color: "var(--text-secondary)" }}>
-                  {accountName(t.account_id)}
-                </span>
-                <span
-                  className="w-24 shrink-0 text-right"
-                  style={{
-                    fontVariantNumeric: "tabular-nums",
-                    color: t.amount_cents < 0 ? "var(--status-critical)" : "var(--status-good)",
-                  }}
-                >
-                  {formatCents(t.amount_cents)}
-                </span>
-              </button>
+      {editingTransaction && (
+        <EditTransactionForm
+          transaction={editingTransaction}
+          accounts={accounts}
+          tags={tags}
+          onTagCreated={onTagCreated}
+          onSaved={() => {
+            bump();
+            setEditingTransaction(null);
+          }}
+          onCancel={() => setEditingTransaction(null)}
+        />
+      )}
 
-              {expanded && (
-                <div className="border-t px-4 py-3" style={{ borderColor: "var(--gridline)" }}>
-                  {editingId === t.id ? (
-                    <EditTransactionForm
-                      transaction={t}
-                      accounts={accounts}
-                      tags={tags}
-                      onTagCreated={onTagCreated}
-                      onSaved={() => {
-                        bump();
-                        setEditingId(null);
-                      }}
-                      onCancel={() => setEditingId(null)}
-                    />
-                  ) : (
-                    <>
-                      <p className="text-sm" style={{ color: t.notes ? "var(--text-secondary)" : "var(--text-muted)" }}>
-                        {t.notes || "No notes."}
-                      </p>
-                      <div className="mt-3 flex gap-2">
-                        <button
-                          onClick={() => setEditingId(t.id)}
-                          className="rounded border px-3 py-1 text-xs"
-                          style={selectStyle}
-                        >
-                          Edit
-                        </button>
-                        <button
-                          onClick={() => handleDelete(t.id)}
-                          className="rounded border px-3 py-1 text-xs"
-                          style={{ borderColor: "var(--status-critical)", color: "var(--status-critical)" }}
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
-          );
-        })}
-        {transactions.length === 0 && (
-          <p className="px-1 py-6 text-center text-sm" style={{ color: "var(--text-muted)" }}>
-            {query ? "No transactions match your search." : "No transactions yet."}
-          </p>
-        )}
-      </div>
+      <LedgerTable
+        transactions={transactions}
+        accounts={accounts}
+        onEdit={setEditingTransaction}
+        onDelete={handleDelete}
+        emptyMessage={query ? "No transactions match your search." : "No transactions yet."}
+      />
     </div>
   );
 }

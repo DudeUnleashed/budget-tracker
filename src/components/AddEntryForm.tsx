@@ -1,10 +1,10 @@
 import { useState } from "react";
 import type { Account, Tag } from "../api";
-import { createCrossLedgerMovement, createTransaction, createTransfer } from "../api";
+import { createAccountTransfer, createTransaction } from "../api";
 import { todayIso } from "../utils";
 import TagPicker from "./TagPicker";
 
-type Mode = "transaction" | "transfer" | "movement";
+type Mode = "transaction" | "transfer";
 
 interface Props {
   accounts: Account[];
@@ -25,7 +25,6 @@ export default function AddEntryForm({ accounts, tags, onTagCreated, onCreated }
   const [toAccountId, setToAccountId] = useState<number | "">("");
   const [kind, setKind] = useState<"expense" | "income">("expense");
   const [tagIds, setTagIds] = useState<number[]>([]);
-  const [movementTagId, setMovementTagId] = useState<number | "">("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
@@ -68,27 +67,16 @@ export default function AddEntryForm({ accounts, tags, onTagCreated, onCreated }
           notes: notes.trim() || null,
           tagIds,
         });
-      } else if (mode === "transfer") {
+      } else {
         if (!fromAccountId || !toAccountId) return setError("Pick both accounts.");
         if (fromAccountId === toAccountId) return setError("Pick two different accounts.");
-        await createTransfer({
+        await createAccountTransfer({
           fromAccountId: Number(fromAccountId),
           toAccountId: Number(toAccountId),
           date,
           amountCents: cents,
           description: description.trim(),
           tagIds,
-        });
-      } else {
-        if (!fromAccountId || !toAccountId) return setError("Pick both accounts.");
-        if (!movementTagId) return setError("Pick a tag (e.g. Owner's Draw, Business Loan).");
-        await createCrossLedgerMovement({
-          fromAccountId: Number(fromAccountId),
-          toAccountId: Number(toAccountId),
-          date,
-          amountCents: cents,
-          description: description.trim(),
-          tagId: Number(movementTagId),
         });
       }
       reset();
@@ -109,7 +97,7 @@ export default function AddEntryForm({ accounts, tags, onTagCreated, onCreated }
       style={{ borderColor: "var(--border)", backgroundColor: "var(--surface-1)" }}
     >
       <div className="flex gap-2">
-        {(["transaction", "transfer", "movement"] as Mode[]).map((m) => (
+        {(["transaction", "transfer"] as Mode[]).map((m) => (
           <button
             type="button"
             key={m}
@@ -121,7 +109,7 @@ export default function AddEntryForm({ accounts, tags, onTagCreated, onCreated }
               border: mode === m ? "none" : "1px solid var(--border)",
             }}
           >
-            {m === "transaction" ? "One-off" : m === "transfer" ? "Transfer (same ledger)" : "Cross-ledger move"}
+            {m === "transaction" ? "One-off" : "Account transfer"}
           </button>
         ))}
       </div>
@@ -175,7 +163,7 @@ export default function AddEntryForm({ accounts, tags, onTagCreated, onCreated }
         </div>
       )}
 
-      {mode === "transaction" && (
+      {mode === "transaction" ? (
         <div className="flex flex-wrap items-end gap-3">
           <div className="flex flex-col gap-1">
             <label className="text-xs" style={{ color: "var(--text-muted)" }}>Account</label>
@@ -204,9 +192,7 @@ export default function AddEntryForm({ accounts, tags, onTagCreated, onCreated }
             </select>
           </div>
         </div>
-      )}
-
-      {(mode === "transfer" || mode === "movement") && (
+      ) : (
         <div className="flex flex-wrap items-end gap-3">
           <div className="flex flex-col gap-1">
             <label className="text-xs" style={{ color: "var(--text-muted)" }}>From account</label>
@@ -236,28 +222,13 @@ export default function AddEntryForm({ accounts, tags, onTagCreated, onCreated }
               ))}
             </select>
           </div>
-          {mode === "movement" && (
-            <div className="flex flex-col gap-1">
-              <label className="text-xs" style={{ color: "var(--text-muted)" }}>Classify as</label>
-              <select
-                value={movementTagId}
-                onChange={(e) => setMovementTagId(e.target.value ? Number(e.target.value) : "")}
-                className="rounded border bg-transparent px-2 py-1 text-sm"
-                style={selectStyle}
-              >
-                <option value="">Select tag…</option>
-                {tags.map((t) => (
-                  <option key={t.id} value={t.id} style={{ color: "black" }}>{t.name}</option>
-                ))}
-              </select>
-            </div>
-          )}
+          <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+            Same ledger on both sides → a transfer (not counted). Different ledgers → counted as income/expense on each side.
+          </p>
         </div>
       )}
 
-      {mode !== "movement" && (
-        <TagPicker tags={tags} selected={tagIds} onChange={handleTagChange} onTagCreated={onTagCreated} />
-      )}
+      <TagPicker tags={tags} selected={tagIds} onChange={handleTagChange} onTagCreated={onTagCreated} />
 
       {error && <p className="text-xs" style={{ color: "var(--status-critical)" }}>{error}</p>}
 

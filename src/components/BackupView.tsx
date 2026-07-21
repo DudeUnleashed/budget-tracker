@@ -2,6 +2,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { useState } from "react";
 import type { ImportSummary } from "../api";
 import { exportData, importData } from "../api";
+import LegacyImportView from "./LegacyImportView";
 
 interface Props {
   bump: () => void;
@@ -53,8 +54,8 @@ export default function BackupView({ bump }: Props) {
       <div className="rounded-lg border p-4" style={cardStyle}>
         <h3 className="font-medium">Export backup</h3>
         <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>
-          Writes every account, tag, transaction, subscription (with its billing history), and
-          budget to CSV files in a folder you choose - a complete, restorable backup.
+          Writes every account, tag, transaction, recurring item, and budget to CSV files in a
+          folder you choose - a complete, restorable backup.
         </p>
         <button
           onClick={handleExport}
@@ -89,8 +90,8 @@ export default function BackupView({ bump }: Props) {
         {importResult && (
           <p className="mt-2 text-sm" style={{ color: "var(--status-good)" }}>
             Restored {importResult.accounts} accounts, {importResult.tags} tags,{" "}
-            {importResult.transactions} transactions, {importResult.subscriptions} subscriptions,{" "}
-            {importResult.occurrences} billing cycles, {importResult.budgets} budgets.
+            {importResult.transactions} transactions, {importResult.recurring} recurring items,{" "}
+            {importResult.budgets} budgets, {importResult.debts} debts.
           </p>
         )}
       </div>
@@ -100,6 +101,8 @@ export default function BackupView({ bump }: Props) {
           {error}
         </p>
       )}
+
+      <LegacyImportView bump={bump} />
     </div>
   );
 }

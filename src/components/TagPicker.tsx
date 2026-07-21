@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Tag } from "../api";
 import { createTag } from "../api";
+import { orderTagsHierarchically } from "../utils";
 
 interface Props {
   tags: Tag[];
@@ -31,9 +32,11 @@ export default function TagPicker({ tags, selected, onChange, onTagCreated }: Pr
 
   const regularTags = tags.filter((t) => !SPECIAL_TAG_NAMES.has(t.name));
   const specialTags = tags.filter((t) => SPECIAL_TAG_NAMES.has(t.name));
+  const orderedRegular = orderTagsHierarchically(regularTags);
 
   function renderChip(tag: Tag) {
     const isSelected = selected.includes(tag.id);
+    const isChild = tag.parent_id !== null;
     return (
       <button
         type="button"
@@ -44,9 +47,10 @@ export default function TagPicker({ tags, selected, onChange, onTagCreated }: Pr
           borderColor: isSelected ? tag.color ?? "var(--accent)" : "var(--border)",
           backgroundColor: isSelected ? `${tag.color ?? "#3987e5"}22` : "transparent",
           color: isSelected ? "var(--text-primary)" : "var(--text-secondary)",
+          opacity: isChild ? 0.85 : 1,
         }}
       >
-        {tag.name}
+        {isChild ? `› ${tag.name}` : tag.name}
       </button>
     );
   }
@@ -54,7 +58,7 @@ export default function TagPicker({ tags, selected, onChange, onTagCreated }: Pr
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-2">
-        {regularTags.map(renderChip)}
+        {orderedRegular.map(renderChip)}
         <input
           value={newTagName}
           onChange={(e) => setNewTagName(e.target.value)}

@@ -81,8 +81,3 @@ CREATE TABLE budgets (
   created_at   TEXT NOT NULL,
   updated_at   TEXT NOT NULL
 );
-
-INSERT INTO tags (name, color) VALUES
-  ('Owner''s Draw', '#22c55e'),
-  ('Business Loan', '#f59e0b'),
-  ('Loan Repayment', '#3b82f6');

@@ -1,29 +1,34 @@
-import { useEffect, useState } from "react";
-import type { Account, Subscription, Tag } from "./api";
-import { listAccounts, listSubscriptions, listTags } from "./api";
+import { useEffect, useLayoutEffect, useState } from "react";
+import type { Account, Budget, DebtProgress, RecurringProgress, Tag } from "./api";
+import { listAccounts, listBudgets, listDebts, listRecurring, listTags } from "./api";
 import "./App.css";
-import AccountsView from "./components/AccountsView";
-import BackupView from "./components/BackupView";
-import BudgetsView from "./components/BudgetsView";
+import CategoriesView from "./components/CategoriesView";
 import DashboardView from "./components/DashboardView";
-import SubscriptionsView from "./components/SubscriptionsView";
+import MiscView from "./components/MiscView";
+import type { Theme } from "./components/SettingsView";
 import TransactionsView from "./components/TransactionsView";
+import type { DateFormat } from "./utils";
+import { getCurrencyCode, getDateFormat, setCurrencyCode, setDateFormat } from "./utils";
 
-type Tab = "dashboard" | "accounts" | "transactions" | "subscriptions" | "budgets" | "backup";
+const THEME_STORAGE_KEY = "budget-tracker:theme";
 
+type Tab = "dashboard" | "transactions" | "categories" | "misc";
+
+// Misc always comes last - it's accounts/backup/settings/debt calculator, the stuff you set up
+// once and rarely touch again, not part of the everyday flow.
 const TABS: { key: Tab; label: string }[] = [
   { key: "dashboard", label: "Dashboard" },
-  { key: "accounts", label: "Accounts" },
   { key: "transactions", label: "Transactions" },
-  { key: "subscriptions", label: "Subscriptions" },
-  { key: "budgets", label: "Budgets" },
-  { key: "backup", label: "Backup" },
+  { key: "categories", label: "Categories" },
+  { key: "misc", label: "Misc" },
 ];
 
 function App() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
-  const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
+  const [recurring, setRecurring] = useState<RecurringProgress[]>([]);
+  const [budgets, setBudgets] = useState<Budget[]>([]);
+  const [debts, setDebts] = useState<DebtProgress[]>([]);
   const [dataVersion, setDataVersion] = useState(0);
 
   const now = new Date();
@@ -31,11 +36,37 @@ function App() {
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [tab, setTab] = useState<Tab>("dashboard");
 
+  const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem(THEME_STORAGE_KEY) as Theme | null) ?? "dark");
+  const [currencyCode, setCurrencyCodeState] = useState(() => getCurrencyCode());
+  const [dateFormat, setDateFormatState] = useState<DateFormat>(() => getDateFormat());
+
+  // Runs before paint so there's no flash of the wrong theme on launch.
+  useLayoutEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+  }, [theme]);
+
+  function handleThemeChange(next: Theme) {
+    setTheme(next);
+    localStorage.setItem(THEME_STORAGE_KEY, next);
+  }
+
+  function handleCurrencyChange(code: string) {
+    setCurrencyCode(code);
+    setCurrencyCodeState(code);
+  }
+
+  function handleDateFormatChange(format: DateFormat) {
+    setDateFormat(format);
+    setDateFormatState(format);
+  }
+
   async function refreshAll() {
-    const [acc, tg, subs] = await Promise.all([listAccounts(), listTags(), listSubscriptions(false)]);
+    const [acc, tg, rec, bud, dbts] = await Promise.all([listAccounts(), listTags(), listRecurring(), listBudgets(), listDebts()]);
     setAccounts(acc);
     setTags(tg);
-    setSubscriptions(subs);
+    setRecurring(rec);
+    setBudgets(bud);
+    setDebts(dbts);
     setDataVersion((v) => v + 1);
   }
 
@@ -58,7 +89,7 @@ function App() {
 
   return (
     <main className="min-h-screen" style={{ backgroundColor: "var(--page-plane)", color: "var(--text-primary)" }}>
-      <div className="mx-auto max-w-5xl px-6 py-8">
+      <div className="mx-auto max-w-[96rem] px-6 py-8">
         <div className="mb-6 flex items-center justify-between">
           <h1 className="text-xl font-semibold">Budget Tracker</h1>
           <nav className="flex gap-1 rounded-lg border p-1" style={{ borderColor: "var(--border)" }}>
@@ -78,9 +109,9 @@ function App() {
           </nav>
         </div>
 
-        {accounts.length === 0 && tab !== "accounts" && tab !== "backup" && (
+        {accounts.length === 0 && (tab === "dashboard" || tab === "transactions") && (
           <p className="mb-4 rounded-lg border px-4 py-3 text-sm" style={{ borderColor: "var(--border)", color: "var(--text-muted)" }}>
-            Add an account first (Accounts tab) before adding transactions or subscriptions.
+            Add an account first (Misc tab) before adding transactions or recurring items.
           </p>
         )}
 
@@ -88,7 +119,7 @@ function App() {
           <DashboardView
             accounts={accounts}
             tags={tags}
-            subscriptions={subscriptions}
+            recurring={recurring}
             year={year}
             month={month}
             onMonthChange={(y, m) => {
@@ -100,9 +131,6 @@ function App() {
             bump={bump}
           />
         )}
-        {tab === "accounts" && (
-          <AccountsView accounts={accounts} onAccountCreated={handleAccountCreated} bump={bump} />
-        )}
         {tab === "transactions" && (
           <TransactionsView
             accounts={accounts}
@@ -112,26 +140,33 @@ function App() {
             bump={bump}
           />
         )}
-        {tab === "subscriptions" && (
-          <SubscriptionsView
+        {tab === "categories" && (
+          <CategoriesView
             accounts={accounts}
             tags={tags}
-            subscriptions={subscriptions}
-            onTagCreated={handleTagCreated}
-            bump={bump}
-          />
-        )}
-        {tab === "budgets" && (
-          <BudgetsView
-            tags={tags}
+            recurring={recurring}
+            budgets={budgets}
             year={year}
             month={month}
             dataVersion={dataVersion}
             bump={bump}
-            onTagCreated={handleTagCreated}
           />
         )}
-        {tab === "backup" && <BackupView bump={bump} />}
+        {tab === "misc" && (
+          <MiscView
+            accounts={accounts}
+            tags={tags}
+            debts={debts}
+            bump={bump}
+            onAccountCreated={handleAccountCreated}
+            theme={theme}
+            onThemeChange={handleThemeChange}
+            currencyCode={currencyCode}
+            onCurrencyChange={handleCurrencyChange}
+            dateFormat={dateFormat}
+            onDateFormatChange={handleDateFormatChange}
+          />
+        )}
       </div>
     </main>
   );

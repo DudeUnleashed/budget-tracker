@@ -4,6 +4,7 @@ export interface Tag {
   id: number;
   name: string;
   color: string | null;
+  parent_id: number | null;
 }
 
 export interface Account {
@@ -35,37 +36,34 @@ export interface Transaction {
 
 export type IntervalUnit = "day" | "week" | "month" | "year";
 
-export interface Subscription {
+export interface Recurring {
   id: number;
-  account_id: number;
-  name: string;
-  amount_cents: number;
+  tag_id: number;
+  account_id: number | null;
   type: "expense" | "income";
   interval_unit: IntervalUnit;
   interval_count: number;
-  start_date: string;
-  next_charge_date: string;
-  end_date: string | null;
-  active: boolean;
-  paused_until: string | null;
+  anchor_date: string;
+  projected_amount_cents: number;
   notes: string | null;
-  tags: Tag[];
+  /** Paused items keep their history but are excluded from budget projections. */
+  active: boolean;
   created_at: string;
   updated_at: string;
 }
 
-export interface SubscriptionOccurrence {
-  id: number;
-  subscription_id: number;
-  due_date: string;
-  amount_cents: number;
-  status: "projected" | "confirmed" | "skipped";
-  paid_date: string | null;
+export interface RecurringProgress {
+  recurring: Recurring;
+  tag: Tag;
+  cycle_start: string;
+  cycle_end: string;
+  paid_cents: number;
+  difference_cents: number;
 }
 
 export interface Budget {
   id: number;
-  ledger: string | null;
+  account_id: number | null;
   tag_id: number | null;
   amount_cents: number;
   show_on_dashboard: boolean;
@@ -76,12 +74,27 @@ export interface Budget {
 export interface BudgetProgress {
   budget: Budget;
   spent_cents: number;
+  /** Effective amount for this month - a month override if one exists, else budget.amount_cents. */
+  amount_cents: number;
+  is_override: boolean;
   percent: number;
+}
+
+export interface ChildSpend {
+  tag: Tag;
+  spent_cents: number;
 }
 
 export interface MonthSummary {
   transactions: Transaction[];
-  occurrences: SubscriptionOccurrence[];
+  total_income_cents: number;
+  total_expense_cents: number;
+  net_cents: number;
+}
+
+export interface MonthTotal {
+  year: number;
+  month: number;
   total_income_cents: number;
   total_expense_cents: number;
   net_cents: number;
@@ -98,15 +111,19 @@ export const updateAccount = (id: number, name: string, ledger: string, starting
 
 export const setDefaultAccount = (id: number) => invoke<Account>("set_default_account", { id });
 
+export const deleteAccount = (id: number) => invoke<void>("delete_account", { id });
+
 export const getAccountBalance = (accountId: number) =>
   invoke<number>("get_account_balance", { accountId });
 
 // Tags
-export const createTag = (name: string, color: string | null) =>
-  invoke<Tag>("create_tag", { name, color });
+export const createTag = (name: string, color: string | null, parentId: number | null = null) =>
+  invoke<Tag>("create_tag", { name, color, parentId });
 
-export const updateTag = (id: number, name: string, color: string | null) =>
-  invoke<Tag>("update_tag", { id, name, color });
+export const updateTag = (id: number, name: string, color: string | null, parentId: number | null) =>
+  invoke<Tag>("update_tag", { id, name, color, parentId });
+
+export const deleteTag = (id: number) => invoke<void>("delete_tag", { id });
 
 export const listTags = () => invoke<Tag[]>("list_tags");
 
@@ -121,23 +138,16 @@ export const createTransaction = (params: {
   tagIds: number[];
 }) => invoke<Transaction>("create_transaction", { notes: null, ...params });
 
-export const createTransfer = (params: {
+/// One account transfer command covers both cases: same-ledger transfer or cross-ledger
+/// movement. The backend decides which based on whether the two accounts share a ledger.
+export const createAccountTransfer = (params: {
   fromAccountId: number;
   toAccountId: number;
   date: string;
   amountCents: number;
   description: string;
   tagIds: number[];
-}) => invoke<Transaction[]>("create_transfer", params);
-
-export const createCrossLedgerMovement = (params: {
-  fromAccountId: number;
-  toAccountId: number;
-  date: string;
-  amountCents: number;
-  description: string;
-  tagId: number;
-}) => invoke<Transaction[]>("create_cross_ledger_movement", params);
+}) => invoke<Transaction[]>("create_account_transfer", params);
 
 export const updateTransaction = (params: {
   id: number;
@@ -152,100 +162,220 @@ export const updateTransaction = (params: {
 
 export const deleteTransaction = (id: number) => invoke<void>("delete_transaction", { id });
 
-export const listTransactionsForMonth = (accountId: number | null, year: number, month: number) =>
-  invoke<Transaction[]>("list_transactions_for_month", { accountId, year, month });
+export const listTransactionsForMonth = (
+  accountId: number | null,
+  tagId: number | null,
+  year: number,
+  month: number,
+) => invoke<Transaction[]>("list_transactions_for_month", { accountId, tagId, year, month });
+
+export const listTransactionsInRange = (
+  accountId: number | null,
+  tagId: number | null,
+  start: string,
+  end: string,
+) => invoke<Transaction[]>("list_transactions_in_range", { accountId, tagId, start, end });
 
 export const searchTransactions = (query: string | null, accountId: number | null = null) =>
   invoke<Transaction[]>("search_transactions", { query, accountId });
 
-// Subscriptions
-export const createSubscription = (params: {
-  accountId: number;
-  name: string;
-  amountCents: number;
+// Recurring
+export const createRecurring = (params: {
+  tagId: number;
+  accountId: number | null;
   kind: "expense" | "income";
   intervalUnit: IntervalUnit;
   intervalCount: number;
-  startDate: string;
-  endDate?: string | null;
+  anchorDate: string;
+  projectedAmountCents: number;
   notes?: string | null;
-  tagIds: number[];
-}) => invoke<Subscription>("create_subscription", { endDate: null, notes: null, ...params });
+}) => invoke<RecurringProgress>("create_recurring", { notes: null, ...params });
 
-export const listSubscriptions = (activeOnly: boolean) =>
-  invoke<Subscription[]>("list_subscriptions", { activeOnly });
-
-export const updateSubscription = (params: {
+export const updateRecurring = (params: {
   id: number;
-  accountId: number;
-  name: string;
-  amountCents: number;
+  tagId: number;
+  accountId: number | null;
+  kind: "expense" | "income";
   intervalUnit: IntervalUnit;
   intervalCount: number;
-  tagIds: number[];
-}) => invoke<Subscription>("update_subscription", params);
+  anchorDate: string;
+  projectedAmountCents: number;
+  notes?: string | null;
+}) => invoke<RecurringProgress>("update_recurring", { notes: null, ...params });
 
-export const updateSubscriptionAmount = (id: number, amountCents: number) =>
-  invoke<Subscription>("update_subscription_amount", { id, amountCents });
+export const deleteRecurring = (id: number) => invoke<void>("delete_recurring", { id });
 
-export const pauseSubscription = (id: number, pausedUntil: string | null = null) =>
-  invoke<Subscription>("pause_subscription", { id, pausedUntil });
+export const setRecurringActive = (id: number, active: boolean) =>
+  invoke<RecurringProgress>("set_recurring_active", { id, active });
 
-export const cancelSubscription = (id: number) => invoke<Subscription>("cancel_subscription", { id });
+export const listRecurring = () => invoke<RecurringProgress[]>("list_recurring");
 
-export const reactivateSubscription = (id: number, nextChargeDate: string | null = null) =>
-  invoke<Subscription>("reactivate_subscription", { id, nextChargeDate });
-
-export const updateOccurrence = (params: {
-  id: number;
-  amountCents?: number | null;
-  status?: string | null;
-  paidDate?: string | null;
-}) =>
-  invoke<SubscriptionOccurrence>("update_occurrence", {
-    amountCents: null,
-    status: null,
-    paidDate: null,
-    ...params,
-  });
+export const listRecurringCycleTransactions = (id: number) =>
+  invoke<Transaction[]>("list_recurring_cycle_transactions", { id });
 
 // Budgets
 export const createBudget = (
-  ledger: string | null,
+  accountId: number | null,
   tagId: number | null,
   amountCents: number,
   showOnDashboard = true,
-) => invoke<Budget>("create_budget", { ledger, tagId, amountCents, showOnDashboard });
+) => invoke<Budget>("create_budget", { accountId, tagId, amountCents, showOnDashboard });
 
 export const listBudgets = () => invoke<Budget[]>("list_budgets");
 
 export const updateBudget = (
   id: number,
-  ledger: string | null,
+  accountId: number | null,
   tagId: number | null,
   amountCents: number,
   showOnDashboard: boolean,
-) => invoke<Budget>("update_budget", { id, ledger, tagId, amountCents, showOnDashboard });
+) => invoke<Budget>("update_budget", { id, accountId, tagId, amountCents, showOnDashboard });
 
 export const deleteBudget = (id: number) => invoke<void>("delete_budget", { id });
 
 export const getBudgetProgress = (year: number, month: number) =>
   invoke<BudgetProgress[]>("get_budget_progress", { year, month });
 
+export const getBudgetBreakdown = (budgetId: number, year: number, month: number) =>
+  invoke<ChildSpend[]>("get_budget_breakdown", { budgetId, year, month });
+
+/** Like getBudgetBreakdown, but keyed by any tag directly - used to recurse into a child's
+ * own children when drilling down more than one level. */
+export const getTagBreakdown = (tagId: number, accountId: number | null, year: number, month: number) =>
+  invoke<ChildSpend[]>("get_tag_breakdown", { tagId, accountId, year, month });
+
+export const setBudgetMonthOverride = (budgetId: number, year: number, month: number, amountCents: number) =>
+  invoke<BudgetProgress>("set_budget_month_override", { budgetId, year, month, amountCents });
+
+export const clearBudgetMonthOverride = (budgetId: number, year: number, month: number) =>
+  invoke<BudgetProgress>("clear_budget_month_override", { budgetId, year, month });
+
 // Dashboard
 export const getMonthSummary = (year: number, month: number, accountId: number | null = null) =>
   invoke<MonthSummary>("get_month_summary", { year, month, accountId });
+
+export const getMonthlyTrend = (year: number, month: number, months: number, accountId: number | null = null) =>
+  invoke<MonthTotal[]>("get_monthly_trend", { year, month, months, accountId });
+
+// Debts (standalone payoff calculators - no tags/accounts, purely computed)
+export interface Debt {
+  id: number;
+  name: string;
+  start_date: string;
+  principal_cents: number;
+  monthly_payment_cents: number;
+  /** Annual rate in hundredths of a percent (e.g. 1999 = 19.99%). */
+  interest_rate_bps: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DebtPayoffResult {
+  payoff_date: string | null;
+  months: number;
+  total_paid_cents: number;
+  total_interest_cents: number;
+  never_pays_off: boolean;
+}
+
+export interface DebtProgress extends DebtPayoffResult {
+  debt: Debt;
+}
+
+export interface DebtInput {
+  name: string;
+  startDate: string;
+  principalCents: number;
+  monthlyPaymentCents: number;
+  interestRateBps: number;
+}
+
+export const createDebt = (input: DebtInput) => invoke<DebtProgress>("create_debt", { ...input });
+
+export const updateDebt = (id: number, input: DebtInput) => invoke<DebtProgress>("update_debt", { id, ...input });
+
+export const deleteDebt = (id: number) => invoke<void>("delete_debt", { id });
+
+export const listDebts = () => invoke<DebtProgress[]>("list_debts");
+
+export const previewDebtPayoff = (input: DebtInput) =>
+  invoke<DebtPayoffResult>("preview_debt_payoff", {
+    startDate: input.startDate,
+    principalCents: input.principalCents,
+    monthlyPaymentCents: input.monthlyPaymentCents,
+    interestRateBps: input.interestRateBps,
+  });
 
 // Backup / restore
 export interface ImportSummary {
   accounts: number;
   tags: number;
   transactions: number;
-  subscriptions: number;
-  occurrences: number;
+  recurring: number;
   budgets: number;
+  debts: number;
 }
 
 export const exportData = (dir: string) => invoke<void>("export_data", { dir });
 
 export const importData = (dir: string) => invoke<ImportSummary>("import_data", { dir });
+
+/** Deletes every account, tag, transaction, recurring item, budget, and debt. Irreversible. */
+export const wipeAllData = () => invoke<void>("wipe_all_data");
+
+// Legacy import (pre-Recurring backups: subscriptions/occurrences, ledger-scoped budgets, flat tags)
+export interface TagOption {
+  id: number;
+  name: string;
+}
+
+export interface AccountOption {
+  id: number;
+  name: string;
+}
+
+export interface SubscriptionResolution {
+  subscription_id: number;
+  subscription_name: string;
+  candidate_tags: TagOption[];
+  suggested_tag_id: number | null;
+  suggested_new_tag_name: string;
+  needs_review: boolean;
+  dropped_fields_note: string | null;
+}
+
+export interface BudgetResolution {
+  budget_id: number;
+  ledger: string | null;
+  matching_accounts: AccountOption[];
+  suggested_account_id: number | null;
+  needs_review: boolean;
+}
+
+export interface LegacyMigrationPlan {
+  accounts: number;
+  tags: number;
+  transactions: number;
+  occurrences_dropped: number;
+  all_tags: TagOption[];
+  all_accounts: AccountOption[];
+  subscription_resolutions: SubscriptionResolution[];
+  budget_resolutions: BudgetResolution[];
+}
+
+export interface LegacyImportSummary {
+  accounts: number;
+  tags: number;
+  transactions: number;
+  recurring: number;
+  budgets: number;
+  occurrences_dropped: number;
+}
+
+export const previewLegacyImport = (dir: string) => invoke<LegacyMigrationPlan>("preview_legacy_import", { dir });
+
+export const applyLegacyImport = (
+  dir: string,
+  subscriptionChoices: { subscriptionId: number; tagId: number | null; newTagName: string | null }[],
+  budgetChoices: { budgetId: number; accountId: number | null }[],
+) => invoke<LegacyImportSummary>("apply_legacy_import", { dir, subscriptionChoices, budgetChoices });
